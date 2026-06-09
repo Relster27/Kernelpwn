@@ -1,0 +1,55 @@
+#!/bin/sh
+
+
+mknod -m 666 /dev/ptmx c 5 2
+mknod -m 666 /dev/null c 1 3
+mknod -m 666 /dev/zero c 1 5
+mknod -m 666 /dev/tty c 5 0
+mknod -m 0660 /dev/ttyS0 c 4 64
+mknod -m 444 /dev/random c 1 8
+mknod -m 444 /dev/urandom c 1 9
+chown root:tty /dev/console
+chown root:tty /dev/ptmx
+chown root:tty /dev/tty
+chown root:root /root
+chmod 600 /root
+mount -t proc none /proc
+mount -t sysfs none /sys
+
+mkdir -p /dev/pts
+
+# mounted /tmp/vecuio
+mount -vt devpts -o gid=4,mode=620 none /dev/pts
+
+# no direct access to dmesg and /proc/kallsyms as normal user
+# sysctl -w kernel.perf_event_paranoid=3
+sysctl -w kernel.perf_event_paranoid=0
+sysctl -w kernel.dmesg_restrict=1
+# sysctl -w kernel.kptr_restrict=1
+sysctl -w kernel.kptr_restrict=0
+
+clear
+
+chown 1000.1000 /banner
+cat /banner
+
+chmod 666 /dev/ptmx
+stty -opost
+
+# kernel module goes here
+mkdir /tmp
+mkdir /t
+chown -R 1000.1000 /home/
+chown -R 1000.1000 /tmp
+chown -R 1000.1000 /t
+chmod 600 /flag
+chown 0.0 /flag
+
+insmod stagetwo.ko
+mknod /dev/stagetwo c 248 0
+chmod 777 /dev/stagetwo
+
+# DEBUG!!!!
+cat /proc/kallsyms | grep stagetwo_ioctl
+
+setsid cttyhack setuidgid 1000 sh
