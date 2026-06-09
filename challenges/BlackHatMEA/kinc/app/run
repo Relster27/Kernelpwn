@@ -1,0 +1,18 @@
+#!/bin/sh
+qemu-img create -f qcow2 -b "$(realpath rootfs.ext4)" -F raw /tmp/overlay.qcow2 >/dev/null
+cp flag.txt /tmp/flag.txt && chmod 666 /tmp/flag.txt
+
+qemu-system-x86_64 \
+    -m 64M \
+    -nographic \
+    -kernel bzImage \
+    -drive file=/tmp/overlay.qcow2,format=qcow2,index=0 \
+    -drive file=/tmp/flag.txt,format=raw,index=1 \
+    -append "root=/dev/sda console=ttyS0 loglevel=3 oops=panic panic=-1 slab_nomerge nokaslr" \
+    -no-reboot \
+    -cpu qemu64,+smap,+smep \
+    -monitor /dev/null \
+    -s #-S
+
+rm -f /tmp/flag.txt
+rm -f /tmp/overlay.qcow2
