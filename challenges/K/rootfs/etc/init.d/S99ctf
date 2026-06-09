@@ -1,0 +1,26 @@
+#!/bin/sh
+
+chmod 700 -R /root
+chown -R ctf:ctf /home/ctf
+
+insmod /root/k.ko
+mknod -m 666 /dev/K c `grep K /proc/devices | awk '{print $1;}'` 0
+mdev -s
+
+stty -opost
+echo 2 > /proc/sys/kernel/kptr_restrict
+echo 1 > /proc/sys/kernel/dmesg_restrict
+
+# DEBUG #
+# echo 0 > /proc/sys/kernel/kptr_restrict
+# cat /proc/kallsyms | grep "\[k\]"
+# cat /proc/modules
+# cat /proc/kallsyms | grep " T _stext"
+# cat /proc/kallsyms | grep "modprobe_path"
+
+chown root:root /root
+
+echo -e "\nBoot took $(cut -d' ' -f1 /proc/uptime) seconds\n"
+setsid cttyhack setuidgid ctf /bin/sh
+umount /proc
+poweroff -d 0 -f

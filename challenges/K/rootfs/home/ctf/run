@@ -1,0 +1,2 @@
+#!/bin/sh
+cd /home/ctf && exec ./interface TCF2024{well_is_admin=true_moment_actually}
