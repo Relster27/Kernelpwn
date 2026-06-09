@@ -1,0 +1,29 @@
+#!/bin/sh
+
+/bin/busybox --install -s
+
+stty raw -echo
+
+chown -R 0:0 /
+
+mkdir -p /proc && mount -t proc none /proc
+mkdir -p /dev  && mount -t devtmpfs devtmpfs /dev
+mkdir -p /tmp  && mount -t tmpfs tmpfs /tmp
+
+echo 1 > /proc/sys/kernel/kptr_restrict
+echo 1 > /proc/sys/kernel/dmesg_restrict
+echo 1 > /proc/sys/kernel/perf_event_paranoid
+
+chmod 400 /proc/kallsyms
+chmod 400 /flag
+
+# cat /proc/kallsyms | grep __x64_sys_bind
+# cat /proc/kallsyms | grep __x64_sys_socket
+# cat /proc/kallsyms | grep unix_create_addr
+cat /proc/slabinfo | head -n 2
+cat /proc/slabinfo | grep "^kmalloc-[0-9]"
+
+setsid /bin/cttyhack setuidgid 1000 /bin/sh
+#setsid /bin/cttyhack setuidgid 0 /bin/sh
+
+poweroff -d 1 -n -f
