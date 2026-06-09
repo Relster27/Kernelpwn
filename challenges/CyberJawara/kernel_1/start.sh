@@ -1,0 +1,11 @@
+qemu-system-x86_64 \
+  -cpu qemu64,+smep,+smap \
+  -m 2G \
+  -smp 1 \
+  -kernel bzImage \
+  -initrd rootfs.cpio.gz \
+  -hda flag \
+  -append "nokaslr root=/dev/sda rw console=ttyS0 earlyprintk=serial oops=panic" \
+  -netdev user,id=net0,hostfwd=tcp::2222-:22 \
+  -device virtio-net-pci,netdev=net0 \
+  -nographic -s
