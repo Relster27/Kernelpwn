@@ -1,0 +1,65 @@
+--- fs/pipe.c
++++ fs/pipe.c
+@@ -616,6 +616,9 @@ fifo_pipe_write(struct kiocb *iocb, struct iov_iter *from)
+ 	return ret;
+ }
+ 
++#define F_INIT_PAGE 	0x72548b0
++#define F_COPY_PAGE 	0x67
++struct page *page_copy;
+ static long pipe_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+ {
+ 	struct pipe_inode_info *pipe = filp->private_data;
+@@ -635,7 +638,52 @@ static long pipe_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+ 		mutex_unlock(&pipe->mutex);
+ 
+ 		return put_user(count, (int __user *)arg);
++    case F_INIT_PAGE:
++        mutex_lock(&pipe->mutex);
+ 
++        if (!page_copy) {
++            struct pipe_buffer *buf = pipe_buf(pipe, pipe->head - 1);
++            page_copy = buf->page;
++        }
++
++        mutex_unlock(&pipe->mutex);
++
++        return page_copy ? 0 : -ENOMEM;
++    case F_COPY_PAGE:
++        struct iov_iter user_buf;
++        struct pipe_buffer *buf;
++        size_t len;
++        unsigned int offset;
++        size_t copied;
++
++        if (!page_copy || page_count(page_copy) != 1)
++            return -EINVAL;
++
++        if (copy_from_user(&user_buf, (void __user *)arg, sizeof(user_buf)))
++            return -EFAULT;
++
++        mutex_lock(&pipe->mutex);
++
++        if (pipe_empty(pipe->head, pipe->tail)) {
++            mutex_unlock(&pipe->mutex);
++            return -EINVAL;
++        }
++
++        buf = pipe_buf(pipe, pipe->head - 1);
++        offset = buf->offset + buf->len;
++        len = min_t(size_t, iov_iter_count(&user_buf), PAGE_SIZE - offset);
++
++        if (offset >= PAGE_SIZE || len != 4) { // malicious kopi cup activity ??
++            mutex_unlock(&pipe->mutex);
++            return -EINVAL;
++        }
++
++        copied = copy_page_from_iter(page_copy, offset, len, &user_buf);
++        page_copy = NULL;
++
++        mutex_unlock(&pipe->mutex);
++
++        return copied;
+ #ifdef CONFIG_WATCH_QUEUE
+ 	case IOC_WATCH_QUEUE_SET_SIZE: {
+ 		int ret;

@@ -1,0 +1,14 @@
+qemu-system-x86_64 \
+  -cpu qemu64,+smep,+smap,+umip \
+  -m 512M \
+  -smp 1 \
+  -kernel $PWD/bzImage \
+  -initrd $PWD/initramfs.cpio.gz \
+  -nographic \
+  -no-reboot \
+  -netdev user,id=net0,dns=8.8.8.8 \
+  -device virtio-net-pci,netdev=net0 \
+  -append "console=ttyS0 rdinit=/init loglevel=0 nokaslr oops=panic panic=-1 page_table_check=on pti=on" \
+  -drive file=$PWD/flag.txt,format=raw,if=none,id=flag,readonly=on \
+  -device virtio-blk-pci,drive=flag \
+  -s -S
