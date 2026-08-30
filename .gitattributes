@@ -1,0 +1,2 @@
+challenges/Techcomfest26/rootfs.ext4 filter=lfs diff=lfs merge=lfs -text
+challenges/Techcomfest26/byt_karbit.zip filter=lfs diff=lfs merge=lfs -text

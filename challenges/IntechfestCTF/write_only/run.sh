@@ -12,4 +12,4 @@ exec timeout --foreground 9999 /usr/bin/qemu-system-x86_64 \
 	      -append "console=ttyS0 quiet nokaslr panic=1 kpti=1 oops=panic" \
 	      -net nic,model=virtio \
 	      -net user \
-        #-s -S
+        -s
